@@ -7,7 +7,7 @@ scrape_configs:
   - job_name: "api"
     metrics_path: /metrics
     static_configs:
-      - targets: ["api:4000"]
+      - targets: ["app:4000"]
 
   # เก็บ metrics ของ host ผ่าน node_exporter
   - job_name: "node"
@@ -15,3 +15,4 @@ scrape_configs:
       - targets:
           - "98.89.193.1:9100"      # <-- นคอเครองปจจบน (Host)
           - "54.162.148.251:9100"
+          - "34.229.0.66:9100"

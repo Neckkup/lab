@@ -1,73 +1,78 @@
+# กำหนดเวอร์ชันของ Docker Compose file format
 version: "3.9"
 
+# ส่วนสำหรับกำหนด Network ที่ Service ต่างๆ จะใช้สื่อสารกัน
 networks:
-  monitor-net:
+  monitor-net: # ชื่อ Network ที่เราสร้างขึ้นมา
 
+# ส่วนสำหรับกำหนด Service (Container) ต่างๆ ใน Application ของเรา
 services:
+  # Service สำหรับ Nginx (Reverse Proxy)
   nginx:
-    image: nginx:1.27.0-alpine
-    container_name: nginx
+    image: nginx:1.27.0-alpine # ใช้ Image Nginx เวอร์ชัน 1.27.0-alpine
+    container_name: nginx # กำหนดชื่อ Container
     ports:
-      - "8080:80"
+      - "8080:80" # Map Port: Host Port 8080 -> Container Port 80 (สำหรับเข้าถึงหน้าเว็บ)
     volumes:
+      # Mount ไฟล์ nginx.conf จาก Host เข้าไปใน Container แบบ Read-Only
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - web
-      - api
+      # กำหนดให้ Nginx ต้องรอให้ Service 'app' พร้อมก่อน
+      - app
     networks:
-      - monitor-net
+      - monitor-net # เชื่อมต่อ Service นี้เข้ากับ Network 'monitor-net'
 
-  web:
+  # Service หลักของ Application (รวม Web Frontend และ Node.js API)
+  app:
+    # กำหนดให้ Build Image จาก Dockerfile ใน Context ปัจจุบัน (root directory)
     build:
-      context: ./web
-    image: monitor-web:latest
-    container_name: web
-    environment:
-      - VITE_API_URL=/api
+      context: . # Build จาก Context ปัจจุบัน (root directory)
+      dockerfile: Dockerfile # ใช้ Dockerfile ที่อยู่ใน root directory
+    container_name: app # กำหนดชื่อ Container
     depends_on:
-      - api
-    networks:
-      - monitor-net
-
-  api:
-    build:
-      context: ./api
-    image: monitor-api:latest
-    container_name: api
-    environment:
-      - PORT=4000
-      - PROMETHEUS_BASE_URL=http://prometheus:9090
-    depends_on:
+      # กำหนดให้ Service 'app' ต้องรอให้ Service 'prometheus' พร้อมก่อน
       - prometheus
     networks:
-      - monitor-net
+      - monitor-net # เชื่อมต่อ Service นี้เข้ากับ Network 'monitor-net'
+    environment:
+      # ตั้งค่า Environment Variable ภายใน Container
+      # บอก API ว่า Prometheus อยู่ที่ไหน (ใช้ชื่อ Service 'prometheus' ใน Docker Network)
+      - PROMETHEUS_BASE_URL=http://prometheus:9090
 
+  # Service สำหรับ Prometheus (Metrics Server และ Database)
   prometheus:
-    image: prom/prometheus:v2.55.1
-    container_name: prometheus
+    image: prom/prometheus:v2.55.1 # ใช้ Image Prometheus เวอร์ชัน 2.55.1
+    container_name: prometheus # กำหนดชื่อ Container
     volumes:
+      # Mount ไฟล์ prometheus.yml จาก Host เข้าไปใน Container แบบ Read-Only
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     command:
+      # กำหนด Command ที่จะรันเมื่อ Container เริ่มทำงาน (บอกให้ Prometheus ใช้ config file ที่ mount เข้ามา)
       - "--config.file=/etc/prometheus/prometheus.yml"
     ports:
-      - "9090:9090"
+      - "9090:9090" # Map Port: Host Port 9090 -> Container Port 9090 (สำหรับเข้าถึง Prometheus UI)
     extra_hosts:
+      # เพิ่ม Host Entry สำหรับ host.docker.internal เพื่อให้ Prometheus ติดต่อ Host ได้
       - "host.docker.internal:host-gateway"
     networks:
-      - monitor-net
+      - monitor-net # เชื่อมต่อ Service นี้เข้ากับ Network 'monitor-net'
 
+  # Service สำหรับ Node Exporter (Agent เก็บ Metrics ของ Host)
   node-exporter:
-    image: prom/node-exporter:v1.8.2
-    container_name: node-exporter
-    network_mode: "host"
-    pid: "host"
+    image: prom/node-exporter:v1.8.2 # ใช้ Image Node Exporter เวอร์ชัน 1.8.2
+    container_name: node-exporter # กำหนดชื่อ Container
+    network_mode: "host" # กำหนดให้ Container ใช้ Network ของ Host โดยตรง
+    pid: "host" # กำหนดให้ Container แชร์ Process ID space กับ Host
     volumes:
+      # Mount โฟลเดอร์ระบบของ Host เข้าไปใน Container แบบ Read-Only เพื่อให้ Node Exporter อ่านข้อมูลได้
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/rootfs:ro
     command:
+      # กำหนด Command ที่จะรันเมื่อ Container เริ่มทำงาน (บอก Node Exporter ว่าไฟล์ระบบอยู่ที่ไหน)
       - '--path.procfs=/host/proc'
       - '--path.sysfs=/host/sys'
       - '--path.rootfs=/rootfs'
+      # Exclude mount points ที่ไม่ต้องการ monitor (เช่น tmpfs, overlay)
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-    restart: always
+    restart: always # กำหนดให้ Container รีสตาร์ทอัตโนมัติเสมอหากหยุดทำงาน
