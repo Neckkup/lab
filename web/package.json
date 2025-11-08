@@ -1,5 +1,5 @@
 {
-  "name": "devops-monitor-web",
+  "name": "monitor-web",
   "private": true,
   "scripts": {
     "dev": "vite",

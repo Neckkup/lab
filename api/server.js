@@ -9,10 +9,9 @@ app.use(cors());
 const port = process.env.PORT || 4000;
 const PROM = process.env.PROMETHEUS_BASE_URL || "http://prometheus:9090";
 
-// ---------- /metrics (metrics ของ API เอง) ----------
-const collectDefaultMetrics = client.collectDefaultMetrics;
-collectDefaultMetrics({ register: client.register });
+// --- Endpoints ---
 
+// Endpoint สำหรับให้ Prometheus ดึง metric ของ API เอง
 app.get("/metrics", async (req, res) => {
   try {
     res.set("Content-Type", client.register.contentType);
@@ -22,20 +21,38 @@ app.get("/metrics", async (req, res) => {
   }
 });
 
-// ---------- /api/system (ดึงข้อมูลจาก Prometheus) ----------
-const Q_CPU_PER_CORE = `
-  100 - (rate(node_cpu_seconds_total{mode="idle"}[1m]) * 100)
+// [ใหม่] Endpoint สำหรับดึงรายชื่อเครื่อง (instance) ทั้งหมด
+app.get("/api/instances", async (_req, res) => {
+  try {
+    const url = `${PROM}/api/v1/query`;
+    const { data } = await axios.get(url, { params: { query: 'up{job="node"}' } });
+    if (data.status !== "success" || !data.data || !data.data.result) {
+      return res.json([]);
+    }
+    const instances = data.data.result.map(item => item.metric.instance);
+    res.json(instances);
+  } catch (e) {
+    console.error("Error in /api/instances:", e);
+    res.status(500).json({ error: "failed to query prometheus for instances", detail: String(e) });
+  }
+});
+
+
+// --- Queries ---
+const Q_CPU_PER_CORE = (instance) => `
+  100 - (rate(node_cpu_seconds_total{mode="idle",instance="${instance}"}[1m]) * 100)
 `;
-const Q_MEM = `
-  100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))
+const Q_MEM = (instance) => `
+  100 * (1 - (node_memory_MemAvailable_bytes{instance="${instance}"} / node_memory_MemTotal_bytes{instance="${instance}"}))
 `;
-const Q_DISK = `
-  100 * (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}))
+const Q_DISK = (instance) => `
+  100 * (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay",instance="${instance}"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay",instance="${instance}"}))
 `;
 
-async function queryCpuPerCore() {
+// --- Query Functions ---
+async function queryCpuPerCore(instance) {
   const url = `${PROM}/api/v1/query`;
-  const { data } = await axios.get(url, { params: { query: Q_CPU_PER_CORE } });
+  const { data } = await axios.get(url, { params: { query: Q_CPU_PER_CORE(instance) } });
   if (data.status !== "success" || !data.data || !data.data.result) return {};
   
   const cpuData = {};
@@ -55,18 +72,24 @@ async function instantQuery(query) {
   return Number(value.toFixed(2));
 }
 
-app.get("/api/system", async (_req, res) => {
+// --- Main Data Endpoint ---
+app.get("/api/system", async (req, res) => {
   try {
+    const { instance } = req.query;
+    if (!instance) {
+      return res.status(400).json({ error: "instance parameter is required" });
+    }
+
     const now = new Date();
     const ts = now.toLocaleTimeString();
 
     const [cpu, mem, disk] = await Promise.all([
-      queryCpuPerCore(),
-      instantQuery(Q_MEM),
-      instantQuery(Q_DISK)
+      queryCpuPerCore(instance),
+      instantQuery(Q_MEM(instance)),
+      instantQuery(Q_DISK(instance))
     ]);
 
-    console.log('Prometheus query result:', { cpu, mem, disk });
+    console.log(`Prometheus query for ${instance}:`, { cpu, mem, disk });
 
     res.json({
       cpu: [{ t: ts, ...cpu }],
@@ -78,6 +101,7 @@ app.get("/api/system", async (_req, res) => {
     res.status(500).json({ error: "failed to query prometheus", detail: String(e) });
   }
 });
+
 
 app.listen(port, () => {
   console.log(`API listening on :${port}`);

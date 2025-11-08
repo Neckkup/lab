@@ -12,4 +12,6 @@ scrape_configs:
   # เก็บ metrics ของ host ผ่าน node_exporter
   - job_name: "node"
     static_configs:
-      - targets: ["172.17.0.1:9100"]
+      - targets:
+          - "98.89.193.1:9100"      # <-- นคอเครองปจจบน (Host)
+          - "54.162.148.251:9100"

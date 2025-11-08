@@ -1,5 +1,5 @@
 {
-  "name": "devops-monitor-api",
+  "name": "monitor-api",
   "private": true,
   "type": "module",
   "scripts": {
