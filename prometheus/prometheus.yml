@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # เก็บ metrics ของ Node API (/metrics)
+  - job_name: "api"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:4000"]
+
+  # เก็บ metrics ของ host ผ่าน node_exporter
+  - job_name: "node"
+    static_configs:
+      - targets: ["172.17.0.1:9100"]

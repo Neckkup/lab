@@ -1,0 +1,73 @@
+version: "3.9"
+
+networks:
+  monitor-net:
+
+services:
+  nginx:
+    image: nginx:1.27.0-alpine
+    container_name: nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - web
+      - api
+    networks:
+      - monitor-net
+
+  web:
+    build:
+      context: ./web
+    image: monitor-web:latest
+    container_name: web
+    environment:
+      - VITE_API_URL=/api
+    depends_on:
+      - api
+    networks:
+      - monitor-net
+
+  api:
+    build:
+      context: ./api
+    image: monitor-api:latest
+    container_name: api
+    environment:
+      - PORT=4000
+      - PROMETHEUS_BASE_URL=http://prometheus:9090
+    depends_on:
+      - prometheus
+    networks:
+      - monitor-net
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - monitor-net
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: node-exporter
+    network_mode: "host"
+    pid: "host"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: always
